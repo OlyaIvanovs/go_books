@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -14,6 +15,13 @@ import (
 type Page struct {
 	Name     string
 	DBStatus bool
+}
+
+type SearchResult struct {
+	Title  string
+	Author string
+	Year   string
+	ID     string
 }
 
 func main() {
@@ -54,5 +62,18 @@ func main() {
 		}
 	})
 
-	fmt.Print(http.ListenAndServe(":8080", nil))
+	http.HandleFunc("/search", func(rw http.ResponseWriter, r *http.Request) {
+		results := []SearchResult{
+			SearchResult{"Moby-Dick", "Herman Melwille", "1851", "222"},
+			SearchResult{"The adventures of Finn", "Mark Twain", "1884", "4444"},
+			SearchResult{"The catcher in the Rye", "JD Salinger", "1951", "3333"},
+		}
+
+		encoder := json.NewEncoder(rw)
+		if err := encoder.Encode(results); err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
+		}
+	})
+
+	fmt.Print(http.ListenAndServe(":8090", nil))
 }
