@@ -3,9 +3,12 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"text/template"
 
@@ -18,10 +21,10 @@ type Page struct {
 }
 
 type SearchResult struct {
-	Title  string
-	Author string
-	Year   string
-	ID     string
+	Title  string `xml:"title,attr"`
+	Author string `xml:"author,attr"`
+	Year   string `xml:"hyr,attr"`
+	ID     string `xml:"owi,attr"`
 }
 
 func main() {
@@ -45,28 +48,16 @@ func main() {
 	defer db.Close()
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		p := Page{Name: "Gopher"}
-		if name := r.FormValue("name"); name != "" {
-			p.Name = name
-		}
-
-		err = db.Ping()
-		if err != nil {
-			fmt.Println("no connections", err)
-		}
-
-		p.DBStatus = db.Ping() == nil
-
-		if err := templates.ExecuteTemplate(w, "index.html", p); err != nil {
+		if err := templates.ExecuteTemplate(w, "index.html", nil); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	})
 
 	http.HandleFunc("/search", func(rw http.ResponseWriter, r *http.Request) {
-		results := []SearchResult{
-			SearchResult{"Moby-Dick", "Herman Melwille", "1851", "222"},
-			SearchResult{"The adventures of Finn", "Mark Twain", "1884", "4444"},
-			SearchResult{"The catcher in the Rye", "JD Salinger", "1951", "3333"},
+		var results []SearchResult
+
+		if results, err = search(r.FormValue("search")); err != nil {
+			http.Error(rw, err.Error(), http.StatusInternalServerError)
 		}
 
 		encoder := json.NewEncoder(rw)
@@ -76,4 +67,27 @@ func main() {
 	})
 
 	fmt.Print(http.ListenAndServe(":8090", nil))
+}
+
+type ClassifySearchResponse struct {
+	Results []SearchResult `xml:"works>work"`
+}
+
+func search(query string) ([]SearchResult, error) {
+	var resp *http.Response
+	var err error
+
+	if resp, err = http.Get("http://classify.oclc.org/classify2/Classify?&summary=true&title=" + url.QueryEscape(query)); err != nil {
+		return []SearchResult{}, err
+	}
+
+	defer resp.Body.Close()
+	var body []byte
+	if body, err = ioutil.ReadAll(resp.Body); err != nil {
+		return []SearchResult{}, err
+	}
+
+	var c ClassifySearchResponse
+	err = xml.Unmarshal(body, &c)
+	return c.Results, err
 }
